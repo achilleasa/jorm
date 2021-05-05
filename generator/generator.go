@@ -19,6 +19,7 @@ import (
 var (
 	schemaPkg = flag.String("schema-pkg", "github.com/achilleasa/jorm/schema", "the package containing the model schema definitions")
 	modelPkg  = flag.String("model-pkg", "github.com/achilleasa/jorm/model", "the package where the generated models will be stored")
+	storePkg  = flag.String("store-pkg", "github.com/achilleasa/jorm/store", "the package where the generated store interfaces be stored")
 )
 
 func main() {
@@ -61,6 +62,19 @@ func runGenerator() error {
 					filepath.Base(model.SrcFile),
 					".go",
 					"_gen.go",
+					1,
+				)
+			},
+			runPerSrcFile: true,
+		},
+		{
+			templateFile:  "tpl/accessor_gen.go.tpl",
+			targetPackage: *storePkg,
+			targetFileFunc: func(model *parser.Model) string {
+				return strings.Replace(
+					filepath.Base(model.SrcFile),
+					".go",
+					"_accessor_gen.go",
 					1,
 				)
 			},
