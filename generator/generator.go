@@ -107,6 +107,16 @@ func runGenerator() error {
 			targetPackage:  *storeBackendPkg,
 			targetFileFunc: func(*parser.Model) string { return "sqlite_gen_test.go" },
 		},
+		{
+			templateFile:   "tpl/inmemory_gen.go.tpl",
+			targetPackage:  *storeBackendPkg,
+			targetFileFunc: func(*parser.Model) string { return "inmemory_gen.go" },
+		},
+		{
+			templateFile:   "tpl/inmemory_gen_test.go.tpl",
+			targetPackage:  *storeBackendPkg,
+			targetFileFunc: func(*parser.Model) string { return "inmemory_gen_test.go" },
+		},
 	}
 	return renderTemplates(models, renderers)
 }
