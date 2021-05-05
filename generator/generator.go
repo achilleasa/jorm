@@ -17,9 +17,10 @@ import (
 )
 
 var (
-	schemaPkg = flag.String("schema-pkg", "github.com/achilleasa/jorm/schema", "the package containing the model schema definitions")
-	modelPkg  = flag.String("model-pkg", "github.com/achilleasa/jorm/model", "the package where the generated models will be stored")
-	storePkg  = flag.String("store-pkg", "github.com/achilleasa/jorm/store", "the package where the generated store interfaces be stored")
+	schemaPkg    = flag.String("schema-pkg", "github.com/achilleasa/jorm/schema", "the package containing the model schema definitions")
+	modelPkg     = flag.String("model-pkg", "github.com/achilleasa/jorm/model", "the package where the generated models will be stored")
+	storePkg     = flag.String("store-pkg", "github.com/achilleasa/jorm/store", "the package where the generated store interfaces be stored")
+	storeTestPkg = flag.String("store-test-pkg", "github.com/achilleasa/jorm/store/storetest", "the package where the generated store test suite will be stored")
 )
 
 func main() {
@@ -85,6 +86,11 @@ func runGenerator() error {
 			targetPackage:  *storePkg,
 			targetFileFunc: func(*parser.Model) string { return "store_gen.go" },
 		},
+		{
+			templateFile:   "tpl/base_suite_gen.go.tpl",
+			targetPackage:  *storeTestPkg,
+			targetFileFunc: func(*parser.Model) string { return "base_suite_gen.go" },
+		},
 	}
 	return renderTemplates(models, renderers)
 }
@@ -98,6 +104,9 @@ type templateData struct {
 
 	// The package where the model files are to be placed.
 	ModelPkg string
+
+	// The package where the store files are to be placed.
+	StorePkg string
 }
 
 func renderTemplates(models *parser.Models, renderers []templateRenderer) error {
@@ -127,6 +136,7 @@ func renderTemplates(models *parser.Models, renderers []templateRenderer) error 
 					TargetPkg: renderer.targetPackage,
 					Models:    modelDefsInFile,
 					ModelPkg:  *modelPkg,
+					StorePkg:  *storePkg,
 				})
 				if err != nil {
 					return fmt.Errorf("error while rendering models from file %q: %w", srcFile, err)
@@ -139,6 +149,7 @@ func renderTemplates(models *parser.Models, renderers []templateRenderer) error 
 				TargetPkg: renderer.targetPackage,
 				Models:    models.All(),
 				ModelPkg:  *modelPkg,
+				StorePkg:  *storePkg,
 			})
 			if err != nil {
 				return fmt.Errorf("error while rendering models: %w", err)
@@ -251,5 +262,14 @@ var auxFuncs = template.FuncMap{
 			return fmt.Sprintf("Is%s", field.Name.Public)
 		}
 		return fmt.Sprintf("Get%s", field.Name.Public)
+	},
+	// Returns true if any of the provided models includes a find by field.
+	"modelsHaveFindByFields": func(models []*parser.Model) bool {
+		for _, model := range models {
+			if model.HasFindByFields() {
+				return true
+			}
+		}
+		return false
 	},
 }
