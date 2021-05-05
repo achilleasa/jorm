@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	schemaPkg    = flag.String("schema-pkg", "github.com/achilleasa/jorm/schema", "the package containing the model schema definitions")
-	modelPkg     = flag.String("model-pkg", "github.com/achilleasa/jorm/model", "the package where the generated models will be stored")
-	storePkg     = flag.String("store-pkg", "github.com/achilleasa/jorm/store", "the package where the generated store interfaces be stored")
-	storeTestPkg = flag.String("store-test-pkg", "github.com/achilleasa/jorm/store/storetest", "the package where the generated store test suite will be stored")
+	schemaPkg       = flag.String("schema-pkg", "github.com/achilleasa/jorm/schema", "the package containing the model schema definitions")
+	modelPkg        = flag.String("model-pkg", "github.com/achilleasa/jorm/model", "the package where the generated models will be stored")
+	storePkg        = flag.String("store-pkg", "github.com/achilleasa/jorm/store", "the package where the generated store interfaces be stored")
+	storeTestPkg    = flag.String("store-test-pkg", "github.com/achilleasa/jorm/store/storetest", "the package where the generated store test suite will be stored")
+	storeBackendPkg = flag.String("store-backend-pkg", "github.com/achilleasa/jorm/store/backend", "the package where the generated store backends will be stored")
 )
 
 func main() {
@@ -90,6 +91,11 @@ func runGenerator() error {
 			templateFile:   "tpl/base_suite_gen.go.tpl",
 			targetPackage:  *storeTestPkg,
 			targetFileFunc: func(*parser.Model) string { return "base_suite_gen.go" },
+		},
+		{
+			templateFile:   "tpl/package_gen_test.go.tpl",
+			targetPackage:  *storeBackendPkg,
+			targetFileFunc: func(*parser.Model) string { return "package_gen_test.go" },
 		},
 	}
 	return renderTemplates(models, renderers)
