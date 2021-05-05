@@ -43,7 +43,30 @@ func runGenerator() error {
 		return fmt.Errorf("unable to parse model schemas: %w", err)
 	}
 
-	var renderers []templateRenderer
+	// The model generator template uses a uint64 bitmap (bits 2-63) to
+	// track per-field mutations. As such, there is a max limit of 61 fields
+	// per model.
+	for _, model := range models.All() {
+		if got := len(model.Fields); got > 61 {
+			return fmt.Errorf("model %s defines %d fields whereas the ORM implementation details impose a limit of 61 fields per model", model.Name.Public, got)
+		}
+	}
+
+	var renderers = []templateRenderer{
+		{
+			templateFile:  "tpl/model_gen.go.tpl",
+			targetPackage: *modelPkg,
+			targetFileFunc: func(model *parser.Model) string {
+				return strings.Replace(
+					filepath.Base(model.SrcFile),
+					".go",
+					"_gen.go",
+					1,
+				)
+			},
+			runPerSrcFile: true,
+		},
+	}
 	return renderTemplates(models, renderers)
 }
 
@@ -148,4 +171,66 @@ func renderTemplate(targetFile string, tpl *template.Template, data templateData
 }
 
 // The list of aux functions that are available to all templates.
-var auxFuncs = template.FuncMap{}
+var auxFuncs = template.FuncMap{
+	// Return the base name for a package.
+	"basePkgName": func(pkg string) string {
+		return filepath.Base(pkg)
+	},
+	// Remove all selector ("$pkg.") instances from the specified type.
+	"trimPkgSelector": func(pkg, goType string) string {
+		return strings.Replace(
+			goType,
+			fmt.Sprintf("%s.", filepath.Base(pkg)),
+			"",
+			-1,
+		)
+	},
+	// Return the unique set of imports for referencing models/fields
+	// for the specified models.
+	"requiredPkgImports": func(models []*parser.Model) []string {
+		set := make(map[string]struct{})
+		for _, model := range models {
+			for _, field := range model.Fields {
+				for _, pkgName := range field.Type.RequiredImports {
+					set[pkgName] = struct{}{}
+				}
+			}
+		}
+
+		var uniqueSet []string
+		for pkgName := range set {
+			uniqueSet = append(uniqueSet, pkgName)
+		}
+		return uniqueSet
+	},
+	// Filter input model list and return the non-embedded models.
+	"nonEmbeddedModels": func(models []*parser.Model) []*parser.Model {
+		var filteredModels []*parser.Model
+		for _, model := range models {
+			if !model.IsEmbdedded {
+				filteredModels = append(filteredModels, model)
+			}
+		}
+		return filteredModels
+	},
+	// Filter input model list and return the embedded models.
+	"embeddedModels": func(models []*parser.Model) []*parser.Model {
+		var filteredModels []*parser.Model
+		for _, model := range models {
+			if model.IsEmbdedded {
+				filteredModels = append(filteredModels, model)
+			}
+		}
+		return filteredModels
+	},
+	// Return the correct getter name (GetX or IsX) for a field.
+	"getter": func(field *parser.Field) string {
+		if field.Type.Resolved == "*bool" || field.Type.Resolved == "bool" {
+			if strings.HasPrefix(field.Name.Public, "Has") {
+				return field.Name.Public
+			}
+			return fmt.Sprintf("Is%s", field.Name.Public)
+		}
+		return fmt.Sprintf("Get%s", field.Name.Public)
+	},
+}
