@@ -97,6 +97,16 @@ func runGenerator() error {
 			targetPackage:  *storeBackendPkg,
 			targetFileFunc: func(*parser.Model) string { return "package_gen_test.go" },
 		},
+		{
+			templateFile:   "tpl/sqlite_gen.go.tpl",
+			targetPackage:  *storeBackendPkg,
+			targetFileFunc: func(*parser.Model) string { return "sqlite_gen.go" },
+		},
+		{
+			templateFile:   "tpl/sqlite_gen_test.go.tpl",
+			targetPackage:  *storeBackendPkg,
+			targetFileFunc: func(*parser.Model) string { return "sqlite_gen_test.go" },
+		},
 	}
 	return renderTemplates(models, renderers)
 }
@@ -113,6 +123,9 @@ type templateData struct {
 
 	// The package where the store files are to be placed.
 	StorePkg string
+
+	// The package where the common store test suites are to be placed.
+	StoreTestPkg string
 }
 
 func renderTemplates(models *parser.Models, renderers []templateRenderer) error {
@@ -139,10 +152,11 @@ func renderTemplates(models *parser.Models, renderers []templateRenderer) error 
 			for srcFile, modelDefsInFile := range models.ModelsBySrcFile() {
 				targetFile := filepath.Join(os.Getenv("GOPATH"), "src", renderer.targetPackage, renderer.targetFileFunc(modelDefsInFile[0]))
 				output, err := renderTemplate(targetFile, tpls[rIdx], templateData{
-					TargetPkg: renderer.targetPackage,
-					Models:    modelDefsInFile,
-					ModelPkg:  *modelPkg,
-					StorePkg:  *storePkg,
+					TargetPkg:    renderer.targetPackage,
+					Models:       modelDefsInFile,
+					ModelPkg:     *modelPkg,
+					StorePkg:     *storePkg,
+					StoreTestPkg: *storeTestPkg,
 				})
 				if err != nil {
 					return fmt.Errorf("error while rendering models from file %q: %w", srcFile, err)
@@ -152,10 +166,11 @@ func renderTemplates(models *parser.Models, renderers []templateRenderer) error 
 		} else {
 			targetFile := filepath.Join(os.Getenv("GOPATH"), "src", renderer.targetPackage, renderer.targetFileFunc(nil))
 			output, err := renderTemplate(targetFile, tpls[rIdx], templateData{
-				TargetPkg: renderer.targetPackage,
-				Models:    models.All(),
-				ModelPkg:  *modelPkg,
-				StorePkg:  *storePkg,
+				TargetPkg:    renderer.targetPackage,
+				Models:       models.All(),
+				ModelPkg:     *modelPkg,
+				StorePkg:     *storePkg,
+				StoreTestPkg: *storeTestPkg,
 			})
 			if err != nil {
 				return fmt.Errorf("error while rendering models: %w", err)
@@ -274,6 +289,93 @@ var auxFuncs = template.FuncMap{
 		for _, model := range models {
 			if model.HasFindByFields() {
 				return true
+			}
+		}
+		return false
+	},
+	// Return the backend field name storing the model's PK.
+	"pkFieldName": func(model *parser.Model) string {
+		for _, field := range model.Fields {
+			if field.Flags.IsPK {
+				return field.Name.Backend
+			}
+		}
+		return "" // should never happen for non-embedded models.
+	},
+	// Return a comma-delimited list of quoted, backend field names.
+	"sqlFieldNameList": func(model *parser.Model) string {
+		var fieldNames = make([]string, len(model.Fields))
+		for i, field := range model.Fields {
+			fieldNames[i] = fmt.Sprintf("%q", field.Name.Backend)
+		}
+		return strings.Join(fieldNames, ",")
+	},
+	// Return a comma-delimited list of placeholders for inserting a model record.
+	"sqlInsertPlaceholderList": func(model *parser.Model) string {
+		var placeholders = make([]string, len(model.Fields))
+		for i := 0; i < len(model.Fields); i++ {
+			placeholders[i] = "?"
+		}
+		return strings.Join(placeholders, ",")
+	},
+	// Return a comma-delimited list of field-placeholder pairs for updating a model record.
+	"sqlUpdatePlaceholderList": func(model *parser.Model) string {
+		var placeholders []string
+		for _, field := range model.Fields {
+			if field.Flags.IsPK {
+				continue // PK updates not allowed.
+			}
+
+			placeholders = append(placeholders, fmt.Sprintf("%q=?", field.Name.Backend))
+		}
+
+		return strings.Join(placeholders, ",")
+	},
+	// Return the sqlite field type that should be used to store a field type.
+	"sqliteFieldType": func(goType string) string {
+		// Ignore pointer symbols when trying to match built-in types.
+		switch strings.TrimPrefix(goType, "*") {
+		case "string":
+			return "TEXT"
+		case "bool", "int", "uint", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64":
+			return "INTEGER"
+		case "float32", "float64":
+			return "REAL"
+		case "[]byte":
+			return "BLOB"
+		default: // all other fields will be serialized to json and stored as CLOBs.
+			return "TEXT"
+		}
+	},
+	// Returns true if the field contents need to be serialized into json.
+	"sqlSerializeField": func(goType string) bool {
+		// Ignore pointer symbols when trying to match built-in types.
+		switch strings.TrimPrefix(goType, "*") {
+		case "byte", "rune", "string", "bool", "int8", "uint8",
+			"int16", "uint16", "int32", "uint32", "int64", "uint64",
+			"int", "uint", "float32", "float64", "[]byte":
+			return false
+		default:
+			return true
+		}
+	},
+	// Returns true if any of the specified models defines fields that need
+	// to be serialized into json.
+	"sqlModelsNeedSerialization": func(models []*parser.Model) bool {
+		for _, model := range models {
+			if model.IsEmbdedded {
+				continue
+			}
+			for _, field := range model.Fields {
+				// Ignore pointer symbols when trying to match built-in types.
+				switch strings.TrimPrefix(field.Type.Resolved, "*") {
+				case "byte", "rune", "string", "bool", "int8", "uint8",
+					"int16", "uint16", "int32", "uint32", "int64", "uint64",
+					"int", "uint", "float32", "float64", "[]byte":
+					// no serialization required
+				default:
+					return true
+				}
 			}
 		}
 		return false
