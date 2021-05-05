@@ -80,6 +80,11 @@ func runGenerator() error {
 			},
 			runPerSrcFile: true,
 		},
+		{
+			templateFile:   "tpl/store_gen.go.tpl",
+			targetPackage:  *storePkg,
+			targetFileFunc: func(*parser.Model) string { return "store_gen.go" },
+		},
 	}
 	return renderTemplates(models, renderers)
 }
